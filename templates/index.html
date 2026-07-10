@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart 1 Boat Dealer Market Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="eyebrow">SMART 1 MARKETING</div>
+      <h1>Boat Dealer Market Intelligence</h1>
+      <p>Identify boating-access locations, high-value geofences, likely boat-owner communities, and a practical media plan for your dealership.</p>
+      <div class="notice">Planning estimates only. Final locations and counts should be verified before campaign activation.</div>
+    </section>
+
+    <section class="card" id="formCard">
+      <div class="progress"><span id="progressBar"></span></div>
+      <form id="boatForm">
+        <div class="step active" data-step="1">
+          <div class="step-label">Step 1 of 4</div>
+          <h2>Dealership & Market</h2>
+          <div class="grid two">
+            <label>Dealer Name<input name="dealer_name" required placeholder="Example Marine"></label>
+            <label>Website<input name="website" type="url" placeholder="https://example.com"></label>
+            <label>Dealer ZIP Code<input name="dealer_zip" required inputmode="numeric" pattern="[0-9]{5}(-[0-9]{4})?" placeholder="43215"></label>
+            <label>Target Radius<select name="target_radius" required><option value="25 miles">25 miles</option><option value="50 miles" selected>50 miles</option><option value="75 miles">75 miles</option><option value="100 miles">100 miles</option><option value="150 miles">150 miles</option></select></label>
+          </div>
+          <label>Target Cities, Counties, DMAs, or States<textarea name="target_markets" required placeholder="Columbus DMA; Central Ohio; nearby lake communities"></textarea></label>
+        </div>
+
+        <div class="step" data-step="2">
+          <div class="step-label">Step 2 of 4</div>
+          <h2>Inventory & Sales Goals</h2>
+          <label>Primary Boat Types<textarea name="boat_types" required placeholder="Pontoons, fishing boats, wake boats, runabouts, personal watercraft"></textarea></label>
+          <div class="grid two">
+            <label>Inventory Mix<select name="new_used"><option>New boats</option><option>Used boats</option><option selected>New and used boats</option><option>Service, storage, and parts</option></select></label>
+            <label>Primary Objective<select name="campaign_objective"><option>Generate qualified sales leads</option><option>Drive dealership visits</option><option>Promote a boat show or sales event</option><option>Move aged inventory</option><option>Grow service and storage</option><option>Build brand awareness</option></select></label>
+            <label>Monthly Media Budget<select name="monthly_budget"><option>$2,500-$4,999</option><option selected>$5,000-$9,999</option><option>$10,000-$19,999</option><option>$20,000-$39,999</option><option>$40,000+</option></select></label>
+            <label>Seasonality<select name="seasonality"><option>Strong spring/summer season</option><option>Year-round coastal market</option><option>Long warm-weather season</option><option>Short northern boating season</option><option>Unsure—recommend a schedule</option></select></label>
+          </div>
+        </div>
+
+        <div class="step" data-step="3">
+          <div class="step-label">Step 3 of 4</div>
+          <h2>Local Knowledge</h2>
+          <label>Known Lakes, Rivers, Marinas, or Boating Areas<textarea name="known_waterways" placeholder="Alum Creek, Buckeye Lake, Hoover Reservoir"></textarea></label>
+          <label>Known Competitors, Boat Shows, or Marine Retailers<textarea name="known_competitors" placeholder="List any locations that must be included"></textarea></label>
+          <label>Other Targeting Notes<textarea name="notes" placeholder="Brands carried, trailerable radius, financing promotions, affluent communities, exclusions"></textarea></label>
+        </div>
+
+        <div class="step" data-step="4">
+          <div class="step-label">Step 4 of 4</div>
+          <h2>Contact Information</h2>
+          <div class="grid two">
+            <label>Name<input name="contact_name" required></label>
+            <label>Email<input name="contact_email" type="email" required></label>
+            <label>Phone<input name="contact_phone" type="tel" required></label>
+          </div>
+          <div class="final-note">The AI will create a ranked location list, boat-owner household estimate, target communities, and campaign allocation.</div>
+        </div>
+
+        <div class="actions"><button type="button" class="secondary" id="backBtn" disabled>Back</button><button type="button" id="nextBtn">Continue</button><button type="submit" id="submitBtn" class="hidden">Generate Report</button></div>
+        <p class="error" id="formError"></p>
+      </form>
+    </section>
+
+    <section class="loading hidden" id="loading"><div class="spinner"></div><h2>Building the boating market report…</h2><p>Analyzing water access, likely owner households, geofence opportunities, and media priorities.</p></section>
+    <section class="results hidden" id="results"></section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

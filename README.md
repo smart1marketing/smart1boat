@@ -1,0 +1,85 @@
+# Smart 1 Boat Dealer Market Intelligence
+
+A multi-step Smart 1 Marketing lead tool for boat dealers. It creates an AI planning report with:
+
+- Ranked boating-access and conquest geofences
+- Marinas, launches, storage/service, marine retail, event venues, and competitors
+- Estimated target-area population and households
+- Low/base/high estimate of likely boat-owner households
+- Waterway and lake-community overview
+- Priority ZIP/community targets
+- Audience segments and media-budget allocation
+- Smart 1 Suite webhook payload
+- Print-to-PDF report
+
+## Important limitation
+
+This version intentionally uses AI planning estimates instead of paid maps, geocoding, census, or state registration APIs. It does not claim live verification. Before media activation, a strategist should verify each physical location and build the final polygons in the advertising platform.
+
+## Deploy to GitHub
+
+1. Create a new GitHub repository named `smart1boat`.
+2. Upload every file and folder in this project. Keep the folder structure intact.
+3. Do not upload a real `.env` file or API key.
+
+## Deploy to Render
+
+1. In Render, choose **New + > Blueprint**.
+2. Connect the `smart1boat` GitHub repository.
+3. Render will read `render.yaml`.
+4. Add the secret environment variable `OPENAI_API_KEY`.
+5. Add `SMART1_WEBHOOK_URL` for the Smart 1 Suite inbound webhook.
+6. Keep `OPENAI_MODEL` at the default or change it to a model available in your OpenAI account.
+7. Deploy and test `/health`, then test the full form.
+
+## Smart 1 Suite fields
+
+Recommended custom fields:
+
+- Dealer Name
+- Dealer Website
+- Dealer ZIP
+- Target Radius
+- Target Markets
+- Boat Types
+- Inventory Mix
+- Campaign Objective
+- Monthly Budget
+- Seasonality
+- Known Waterways
+- Known Competitors
+- Notes
+- Estimated Boat Owner Households
+- Boat Market Summary
+- Boat Report Status
+- Boat Report JSON (large text field, optional)
+
+The webhook sends human-readable fields plus `report_json`. If the Suite webhook ignores nested or large data, map the summary and estimated-owner fields first and store the full report externally or in a large-text custom field.
+
+## Embed on Smart 1 Suite
+
+The easiest reliable method is an iframe pointing to the Render URL:
+
+```html
+<iframe
+  src="https://YOUR-RENDER-URL.onrender.com/"
+  style="width:100%;min-height:1200px;border:0;border-radius:12px;"
+  loading="lazy"
+  title="Boat Dealer Market Intelligence">
+</iframe>
+```
+
+Using an iframe keeps the JavaScript and API request on the same Render domain and avoids cross-origin and code-block restrictions inside Smart 1 Suite.
+
+## Test locally
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python app.py
+```
+
+Open `http://localhost:5000`.
