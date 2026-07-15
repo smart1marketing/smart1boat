@@ -9,6 +9,7 @@ A multi-step Smart 1 Marketing lead tool for boat dealers. It creates an AI plan
 - Waterway and lake-community overview
 - Priority ZIP/community targets
 - Audience segments and media-budget allocation
+- Weather-trigger budget plan
 - Smart 1 Suite webhook payload
 - Print-to-PDF report
 
@@ -16,10 +17,32 @@ A multi-step Smart 1 Marketing lead tool for boat dealers. It creates an AI plan
 
 This version intentionally uses AI planning estimates instead of paid maps, geocoding, census, or state registration APIs. It does not claim live verification. Before media activation, a strategist should verify each physical location and build the final polygons in the advertising platform.
 
+## Project structure
+
+```
+smart1boat/
+├── app.py               # Flask backend + OpenAI report generation + webhook
+├── templates/
+│   └── index.html       # Self-contained multi-step form (CSS + JS inlined)
+├── requirements.txt
+├── Procfile
+├── render.yaml
+├── .env.example
+└── .gitignore
+```
+
+`index.html` lives in `templates/` because the backend serves it with Flask's
+`render_template("index.html")`. The page is intentionally self-contained: all
+CSS and JavaScript are inlined, so there are no separate `styles.css` or `app.js`
+files to keep in sync. This keeps the form reliable when embedded in Smart 1 Suite.
+
+> Do not commit compiled artifacts (`__pycache__/`, `*.pyc`). They are ignored in
+> `.gitignore`. Edit and deploy `app.py`, not any compiled `.pyc`.
+
 ## Deploy to GitHub
 
 1. Create a new GitHub repository named `smart1boat`.
-2. Upload every file and folder in this project. Keep the folder structure intact.
+2. Upload every file and folder in this project. Keep the folder structure intact (especially `templates/`).
 3. Do not upload a real `.env` file or API key.
 
 ## Deploy to Render
@@ -83,3 +106,7 @@ python app.py
 ```
 
 Open `http://localhost:5000`.
+
+## Weather-trigger targeting
+
+The form supports three weather modes: no weather triggers, weather-enhanced pacing, and weather-trigger-only activation. Reports include suggested conditions, activation or suppression actions, lead time, applicable non-social tactics, and a budget-efficiency explanation. Social advertising is intentionally excluded from recommendations.
