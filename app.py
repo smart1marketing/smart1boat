@@ -337,7 +337,7 @@ def generate_report(payload: dict) -> Any:
         ],
         text={"format": {"type": "json_schema", **REPORT_SCHEMA}},
         temperature=0.25,
-        max_output_tokens=16000,
+        max_output_tokens=11000,
     )
     text = (response.output_text or "").strip()
     if text.startswith("```"):
