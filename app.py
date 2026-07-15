@@ -49,10 +49,12 @@ GEOFENCE GUIDANCE
 - Rank locations Priority 1, 2, or 3.
 
 MEDIA AND WEATHER-TRIGGER RULES
-- Never recommend social media or social advertising. Do not include Facebook, Instagram, TikTok, LinkedIn, Snapchat, Pinterest, X, or any other social channel.
-- Allowed tactics include paid search, programmatic display, geofencing, location lookback, CTV/OTT, streaming audio, YouTube, site retargeting, email, SMS, and dealer CRM follow-up.
-- Respect the requested weather-trigger mode. If the user selects a weather-trigger-only campaign, recommend triggerable media remain paused outside qualifying windows and explain which limited tactics, if any, should remain always-on.
-- Build practical triggers around boating-friendly weather, such as temperature, rain probability, severe weather, wind, consecutive warm days, holiday/weekend forecasts, and seasonal first-warm-weekend opportunities.
+- The entire campaign is weather-triggered. Build the plan around boating-friendly weather signals.
+- ALLOWED channels ONLY: geofencing, location look-back retargeting, programmatic / data-driven targeted display, CTV/OTT, streaming audio, YouTube/online video, and website retargeting.
+- NEVER recommend social media or social advertising (Facebook, Instagram, TikTok, LinkedIn, Snapchat, Pinterest, X, or any other social channel).
+- NEVER recommend paid search, email, or SMS. Do not mention them anywhere in the report.
+- Build practical triggers around boating-friendly weather, such as temperature thresholds, rain probability, severe weather, wind, consecutive warm days, holiday/weekend forecasts, first-warm-weekend and end-of-season opportunities, first frost, and freeze/winterization warnings.
+- Keep weather-trigger labels short and punchy (e.g. "70°+ weekend", "Sunny weekend", "First frost", "Freeze warning", "Holiday weekend forecast").
 - Do not imply that weather guarantees demand. Treat it as a budget-pacing and timing signal.
 
 OUTPUT
@@ -66,7 +68,9 @@ REPORT_SCHEMA = {
         "additionalProperties": False,
         "properties": {
             "market_summary": {"type": "string"},
-            "methodology_note": {"type": "string"},
+            "market_type": {"type": "string"},
+            "market_type_description": {"type": "string"},
+            "market_opportunity": {"type": "string"},
             "market_profile": {
                 "type": "object",
                 "additionalProperties": False,
@@ -103,27 +107,31 @@ REPORT_SCHEMA = {
                     "assumptions",
                 ],
             },
-            "water_access_overview": {
+            "recommended_package": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "package_name": {"type": "string"},
+                    "monthly_investment": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                "required": ["package_name", "monthly_investment", "description"],
+            },
+            "media_channels": {"type": "array", "items": {"type": "string"}},
+            "streaming_audio_note": {"type": "string"},
+            "weather_triggers": {"type": "array", "items": {"type": "string"}},
+            "monthly_plan": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "waterway": {"type": "string"},
-                        "type": {"type": "string"},
-                        "communities_served": {"type": "array", "items": {"type": "string"}},
-                        "boating_fit": {"type": "string"},
-                        "seasonality": {"type": "string"},
-                        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                        "month": {"type": "string"},
+                        "focus": {"type": "string"},
+                        "message": {"type": "string"},
+                        "triggers": {"type": "array", "items": {"type": "string"}},
                     },
-                    "required": [
-                        "waterway",
-                        "type",
-                        "communities_served",
-                        "boating_fit",
-                        "seasonality",
-                        "confidence",
-                    ],
+                    "required": ["month", "focus", "message", "triggers"],
                 },
             },
             "geofence_locations": {
@@ -162,113 +170,20 @@ REPORT_SCHEMA = {
                     ],
                 },
             },
-            "zip_and_community_targets": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "community": {"type": "string"},
-                        "state": {"type": "string"},
-                        "zip_codes": {"type": "array", "items": {"type": "string"}},
-                        "priority": {"type": "integer", "enum": [1, 2, 3]},
-                        "reason": {"type": "string"},
-                        "recommended_audiences": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": [
-                        "community",
-                        "state",
-                        "zip_codes",
-                        "priority",
-                        "reason",
-                        "recommended_audiences",
-                    ],
-                },
-            },
-            "audience_segments": {"type": "array", "items": {"type": "string"}},
-            "recommended_budget": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "monthly_budget_range": {"type": "string"},
-                    "recommended_starting_budget": {"type": "string"},
-                    "rationale": {"type": "string"},
-                },
-                "required": [
-                    "monthly_budget_range",
-                    "recommended_starting_budget",
-                    "rationale",
-                ],
-            },
-            "weather_trigger_plan": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "strategy_summary": {"type": "string"},
-                    "activation_mode": {"type": "string"},
-                    "budget_efficiency_note": {"type": "string"},
-                    "always_on_recommendation": {"type": "string"},
-                    "triggers": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "properties": {
-                                "trigger_name": {"type": "string"},
-                                "condition": {"type": "string"},
-                                "action": {"type": "string"},
-                                "lead_time": {"type": "string"},
-                                "applicable_tactics": {"type": "array", "items": {"type": "string"}},
-                                "reason": {"type": "string"},
-                            },
-                            "required": [
-                                "trigger_name",
-                                "condition",
-                                "action",
-                                "lead_time",
-                                "applicable_tactics",
-                                "reason",
-                            ],
-                        },
-                    },
-                },
-                "required": [
-                    "strategy_summary",
-                    "activation_mode",
-                    "budget_efficiency_note",
-                    "always_on_recommendation",
-                    "triggers",
-                ],
-            },
-            "campaign_plan": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "tactic": {"type": "string"},
-                        "budget_percent": {"type": "integer"},
-                        "purpose": {"type": "string"},
-                        "targeting": {"type": "string"},
-                    },
-                    "required": ["tactic", "budget_percent", "purpose", "targeting"],
-                },
-            },
-            "sales_opportunities": {"type": "array", "items": {"type": "string"}},
             "disclaimer": {"type": "string"},
         },
         "required": [
             "market_summary",
-            "methodology_note",
+            "market_type",
+            "market_type_description",
+            "market_opportunity",
             "market_profile",
-            "water_access_overview",
+            "recommended_package",
+            "media_channels",
+            "streaming_audio_note",
+            "weather_triggers",
+            "monthly_plan",
             "geofence_locations",
-            "zip_and_community_targets",
-            "audience_segments",
-            "recommended_budget",
-            "weather_trigger_plan",
-            "campaign_plan",
-            "sales_opportunities",
             "disclaimer",
         ],
     },
@@ -303,31 +218,40 @@ def generate_report(payload: dict) -> Any:
         raise RuntimeError("OPENAI_API_KEY is not configured.")
     client = OpenAI(api_key=api_key)
     user_prompt = (
-        "\nBuild a Boat Dealer Market Intelligence & Geofencing Report from these inputs:\n"
+        "\nBuild a weather-triggered Boat Dealer Demand & Geofencing Report from these inputs:\n"
         f"{json.dumps(payload, indent=2)}"
-        "\n\nThe dealer did NOT provide a boating season, a media budget, weather preferences, a "
-        "trigger lead time, or lists of local waterways and competitors. You must supply all of "
-        "these yourself:\n"
-        "- Assume the boating season and its length from the dealer's ZIP code and region. Do not ask.\n"
-        "- The dealer did not give a budget. In recommended_budget, suggest an appropriate monthly "
-        "media budget range and a specific recommended starting budget for this market, and explain "
-        "your reasoning based on market size, competition, season length, and the number of high-value "
-        "geofences.\n"
-        "- Always build a weather-triggered media strategy (weather-enhanced pacing that shifts more "
-        "budget into favorable boating weekends and pulls back during severe weather). Treat weather "
-        "triggers as enabled and populate weather_trigger_plan with real triggers.\n"
-        "- Assume the best trigger lead time for each tactic.\n"
+        "\n\nThe dealer did NOT provide a boating season, a media budget, weather preferences, or "
+        "lists of local waterways and competitors. You must supply all of these yourself:\n"
+        "- Assume the boating season and its length from the dealer's ZIP code and region.\n"
         "- Identify the local lakes, rivers, reservoirs, bays, public ramps, marinas, storage/service "
         "facilities, marine retailers, boat shows, and competing boat dealers yourself from geographic "
-        "knowledge of the market, and include them in water_access_overview and geofence_locations.\n\n"
-        "Return 18-30 geofence locations when the market size reasonably supports it. "
-        "Include a mix of boating access, marinas, storage/service, competitors, marine retail, "
-        "and event venues. Prioritize locations inside the target radius and clearly lower "
-        "confidence for uncertain locations.\n"
-        "The ownership rates must be decimals expressed as percentages, such as 7.5 for 7.5 "
-        "percent—not 0.075.\n"
-        "Campaign budget percentages must total 100.\n"
-        "Do not include social media or social advertising in the campaign plan or any recommendation.\n"
+        "knowledge of the market, and include the best of them in geofence_locations.\n\n"
+        "Populate every field of the schema:\n"
+        "- market_summary: one or two sentences framing the weather-triggered boating demand opportunity "
+        "for this dealer and market (reference the dealer name and area).\n"
+        "- market_type: a short badge label for the market, e.g. 'Northern / Seasonal Inland Lake Market' "
+        "or 'Coastal / Year-Round Saltwater Market'. market_type_description: one sentence on the seasonal pattern.\n"
+        "- market_profile: low/base/high estimates for population, households, and likely boat-owner households, "
+        "plus ownership rate (as a percentage decimal such as 7.5, not 0.075), confidence, and assumptions.\n"
+        "- market_opportunity: a short paragraph on the dealer's opportunity in this market.\n"
+        "- recommended_package: invent a professional, benefit-oriented package NAME (e.g. 'Climate Safeguard Fund', "
+        "'Season Surge Plan'), a monthly_investment string like '$5,000/month', and a description of what that level buys. "
+        "Base the amount on market size, competition, and season length.\n"
+        "- media_channels: 3-6 ALLOWED channels only (geofencing campgrounds/marinas & state parks, location look-back "
+        "retargeting, data-driven / programmatic targeted display, connected TV (CTV/OTT), streaming audio, YouTube/online "
+        "video, website retargeting). NEVER include paid search, email, SMS, or any social channel.\n"
+        "- streaming_audio_note: a short recommendation to geotarget streaming audio (streaming radio) around "
+        "water-access areas (marinas, boat ramps, lakes, launch points) because boaters stream audio on the water. "
+        "Specify a sunrise-to-sunset daypart running on boating-favorable days/weekends.\n"
+        "- weather_triggers: 5-8 short trigger labels for this market (e.g. '70°+ weekend', 'Sunny weekend', "
+        "'First frost', 'Freeze warning', 'Holiday weekend forecast').\n"
+        "- monthly_plan: all 12 months (January through December). Each month has a focus title, a short customer-facing "
+        "message, and 1-2 relevant weather trigger labels drawn from weather_triggers. Match focus to the season "
+        "(spring/summer = sales & camping/boating demand, fall = end-of-season & winterization, winter = storage/service "
+        "& early-order/boat-show).\n"
+        "- geofence_locations: 12-18 locations (boating access, marinas, storage/service, competitors, marine retail, "
+        "event venues). Prioritize locations inside the target radius; lower confidence for uncertain ones. Keep text concise.\n"
+        "- disclaimer: a short note that figures are AI planning estimates for the market, not exact counts.\n"
     )
     response = client.responses.create(
         model=MODEL,
@@ -337,7 +261,7 @@ def generate_report(payload: dict) -> Any:
         ],
         text={"format": {"type": "json_schema", **REPORT_SCHEMA}},
         temperature=0.25,
-        max_output_tokens=11000,
+        max_output_tokens=8000,
     )
     text = (response.output_text or "").strip()
     if text.startswith("```"):
