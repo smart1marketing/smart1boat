@@ -1,19 +1,19 @@
 services:
   - type: web
-    name: smart1boat
-    runtime: python
+    name: smart1rv
+    env: node
     plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    buildCommand: npm install
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.4
+      - key: NODE_ENV
+        value: production
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
       - key: OPENAI_API_KEY
         sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4.1-mini
-      - key: SMART1_WEBHOOK_URL
+      - key: SMART1_SUITE_WEBHOOK_URL
         sync: false
       - key: ALLOWED_ORIGINS
-        value: "*"
+        sync: false
