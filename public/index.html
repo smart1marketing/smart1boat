@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart RV Demand Package</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main id="smart-rv-demand-form">
+    <div class="srv-progress" aria-hidden="true">
+      <div class="srv-progress-bar" id="srvProgressBar"></div>
+    </div>
+
+    <form id="rvDemandForm">
+      <!-- All sales + service goals are assumed. All weather triggers are assumed. The package is recommended for the dealer. -->
+      <input name="primary_goal" type="hidden" value="All RV sales goals: new RV sales, used RV sales, trade-ins, and financing">
+      <input name="main_service_opportunity" type="hidden" value="All RV service goals: service appointments, A/C service, roof/seal inspections, generator checks, de-winterization, winterization, and seasonal maintenance">
+
+      <section class="srv-step active" data-step="1">
+        <p class="eyebrow">Smart RV Demand Package</p>
+        <h2>Let’s Build Your Weather-Triggered RV Demand Plan</h2>
+        <p class="helper">Answer a few quick questions and we’ll estimate your campground market opportunity and recommend your plan.</p>
+        <input name="dealership_name" placeholder="Dealership Name" required />
+        <input name="contact_name" placeholder="Contact Name" required />
+        <input name="email" type="email" placeholder="Email Address" required />
+        <input name="phone" placeholder="Phone Number" required />
+        <button type="button" class="next-btn">Continue</button>
+      </section>
+
+      <section class="srv-step" data-step="2">
+        <p class="eyebrow">Dealer Location</p>
+        <h2>Where should we build your demand zone?</h2>
+        <input name="address" placeholder="Dealership Street Address" required />
+        <input name="city" placeholder="City" required />
+        <input name="state" placeholder="State" required />
+        <input name="zip" placeholder="ZIP Code" required />
+        <div class="button-row">
+          <button type="button" class="prev-btn">Back</button>
+          <button type="button" class="next-btn">Continue</button>
+        </div>
+      </section>
+
+      <section class="srv-step" data-step="3">
+        <p class="eyebrow">Website + Geography</p>
+        <h2>How far do customers travel to you?</h2>
+        <p class="helper">We’ll assume the full RV demand funnel — all sales, trade-ins, financing, service, and seasonal maintenance — and recommend the right weather triggers and package for you.</p>
+        <input name="website_url" type="url" placeholder="Dealership Website URL" required />
+        <select name="sales_radius_miles" required>
+          <option value="">How far do customers travel to buy from you?</option>
+          <option value="25">25 miles</option>
+          <option value="50">50 miles</option>
+          <option value="75">75 miles</option>
+          <option value="100">100 miles</option>
+          <option value="150">150 miles</option>
+        </select>
+        <select name="service_radius_miles" required>
+          <option value="">How far do customers travel for service?</option>
+          <option value="15">15 miles</option>
+          <option value="25">25 miles</option>
+          <option value="40">40 miles</option>
+          <option value="60">60 miles</option>
+          <option value="75">75 miles</option>
+        </select>
+        <select name="multiple_locations" required>
+          <option value="">Do you have more than one location?</option>
+          <option value="No">No</option>
+          <option value="Yes">Yes</option>
+        </select>
+        <select name="preferred_start" required>
+          <option value="">When would you like to start?</option>
+          <option>Next month</option>
+          <option>In 30–60 days</option>
+          <option>Before peak season</option>
+          <option>Not sure</option>
+        </select>
+        <div class="button-row">
+          <button type="button" class="prev-btn">Back</button>
+          <button type="button" id="buildOpportunityBtn">Build My Market Estimate</button>
+        </div>
+      </section>
+
+      <section class="srv-step" data-step="4">
+        <p class="eyebrow">Market Estimate</p>
+        <h2>Your Smart RV Demand Market Estimate</h2>
+        <div id="marketOpportunityResult" class="opportunity-card">
+          <p>Calculating Marketing Conditions.</p>
+        </div>
+        <div class="button-row">
+          <button type="button" class="prev-btn">Back</button>
+          <button type="button" class="next-btn">Continue to Proposal Request</button>
+        </div>
+      </section>
+
+      <section class="srv-step" data-step="5">
+        <p class="eyebrow">Proposal Request</p>
+        <h2>Send My Smart RV Demand Proposal Request</h2>
+        <select name="proposal_recipient" id="proposalRecipient" required>
+          <option value="same">Send proposal to the same email address</option>
+          <option value="other">Enter another email address</option>
+        </select>
+        <input name="alternate_email" id="alternateEmail" type="email" placeholder="Alternate Email Address" style="display:none;" />
+        <select name="review_request" required>
+          <option value="">Would you like a Smart 1 strategist to review this with you?</option>
+          <option>Yes, schedule a review</option>
+          <option>Email me the proposal first</option>
+        </select>
+        <textarea name="notes" placeholder="Any notes for our team?"></textarea>
+        <div class="button-row">
+          <button type="button" class="prev-btn">Back</button>
+          <button type="submit">Submit My Proposal Request</button>
+        </div>
+        <p id="submitStatus" class="helper"></p>
+      </section>
+    </form>
+  </main>
+
+  <script src="/script.js"></script>
+</body>
+</html>
