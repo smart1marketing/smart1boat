@@ -1,421 +1,367 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import OpenAI from 'openai';
+/**
+ * Smart 1 Suite — Promotions Proxy
+ * --------------------------------------------------------------
+ * The GoHighLevel Private Integration Token lives ONLY here (as an
+ * environment variable). The promotions page calls this service; this
+ * service calls GoHighLevel. The token never reaches the browser.
+ *
+ * Reads promotion OPPORTUNITIES and maps their custom fields to the six
+ * display fields, resolving fields automatically by their key (no manual
+ * field IDs needed).
+ *
+ * Opportunity custom fields used (folder "Promo"):
+ *   promo_name            -> Promotion Name
+ *   this_promo_is_for     -> This Promotion is for
+ *   promo_start_date      -> Starts
+ *   promo_end_date        -> Ends
+ *   description_of_promo   -> Details
+ *   promo_code_or_neccessary_item, promo_upload -> also returned (extra)
+ *   (Contact comes from the opportunity's linked contact.)
+ *
+ * Environment variables (Render dashboard):
+ *   GHL_PIT             (required)  Private Integration Token: pit-xxxx...
+ *   GHL_LOCATION_ID     (required)  Sub-account / location ID
+ *   ALLOWED_ORIGIN      (optional)  Default "*"
+ *   PROMO_PIPELINE_ID   (optional)  If set, only this pipeline's opps show.
+ *                                   If not set, any opp with promo_name shows.
+ *
+ * PIT scopes required:
+ *   opportunities.readonly  AND  locations/customFields.readonly
+ */
+
+import express from "express";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map(origin => origin.trim())
-  .filter(Boolean);
+const GHL_BASE = "https://services.leadconnectorhq.com";
+const GHL_VERSION = "2021-07-28";
 
-const allowAllOrigins = allowedOrigins.length === 0 || allowedOrigins.includes('*');
+const {
+  GHL_PIT,
+  GHL_LOCATION_ID,
+  ALLOWED_ORIGIN = "*",
+  PROMO_PIPELINE_ID = "",
+  PROMO_PIPELINE_NAME = "Schmidt Marketing Projects", // pipeline to match by name
+  PROMO_STAGE_ID = "",
+  PROMO_STAGE_NAME = "Upcoming Events", // stage within that pipeline to show
+  PORT = 10000,
+} = process.env;
 
-app.use(cors({
-  origin(origin, callback) {
-    // Allow non-browser requests (no Origin header), a blank ALLOWED_ORIGINS,
-    // an explicit "*" wildcard, or an exact origin match.
-    if (!origin || allowAllOrigins || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    // Do NOT throw here — throwing skips CORS headers and the browser reports a
-    // generic "Failed to fetch". Instead, deny the CORS headers gracefully so the
-    // request still returns a normal (blocked) response we can diagnose.
-    return callback(null, false);
-  }
-}));
-app.use(express.json({ limit: '1mb' }));
-app.use(express.static('public'));
+// Short custom-field keys we care about -> our output field name.
+const FIELD_MAP = {
+  promo_name: "name",
+  this_promo_is_for: "audience",
+  promo_start_date: "start",
+  promo_end_date: "end",
+  description_of_promo: "details",
+  promo_code_or_neccessary_item: "promoCode",
+  promo_upload: "upload",
+};
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let cache = { data: null, at: 0 };
+const CACHE_MS = 60 * 1000;
 
-const requiredEnv = ['OPENAI_API_KEY', 'SMART1_SUITE_WEBHOOK_URL'];
-for (const key of requiredEnv) {
-  if (!process.env[key]) {
-    console.warn(`Missing environment variable: ${key}`);
-  }
-}
+// Resolved once: short field key -> custom field id (definitions rarely change)
+let fieldIdByKey = null;
 
-const currentMonthIndex = new Date().getMonth();
-const monthNames = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-];
-const nextMonthName = monthNames[(currentMonthIndex + 1) % 12];
+// ---- CORS (read-only public promo data) ----
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 
-function normalizeFormPayload(body) {
-  const triggers = Array.isArray(body.weather_triggers)
-    ? body.weather_triggers
-    : String(body.weather_triggers || '')
-        .split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-
+function ghlHeaders() {
   return {
-    dealership_name: body.dealership_name || '',
-    contact_name: body.contact_name || '',
-    email: body.email || '',
-    phone: body.phone || '',
-    proposal_recipient_email: body.proposal_recipient_email || body.alternate_email || body.email || '',
-    address: body.address || '',
-    city: body.city || '',
-    state: body.state || '',
-    zip: body.zip || '',
-    website_url: body.website_url || '',
-    sales_radius_miles: body.sales_radius_miles || '',
-    service_radius_miles: body.service_radius_miles || '',
-    multiple_locations: body.multiple_locations || '',
-    primary_goal: body.primary_goal || 'All sales, trade-ins, financing, service appointments, and seasonal maintenance',
-    main_service_opportunity: body.main_service_opportunity || 'Full RV demand package: service appointments, A/C service, roof/seal inspections, generator checks, de-winterization, winterization, and seasonal maintenance',
-    package_level: body.package_level || '',
-    preferred_start: body.preferred_start || '',
-    weather_triggers: triggers,
-    review_request: body.review_request || '',
-    notes: body.notes || '',
-    estimate_type: 'AI-generated planning estimate'
+    Authorization: `Bearer ${GHL_PIT}`,
+    Version: GHL_VERSION,
+    Accept: "application/json",
   };
 }
 
-function buildPrompt(payload) {
-  return `
-You are helping Smart 1 Marketing estimate campground and RV park market opportunity for an RV dealer advertising proposal.
-
-This is not an exact database lookup. Create a reasonable marketing planning estimate based on the dealer's city, state, ZIP code, sales radius, service radius, regional density, tourism/camping patterns, and typical campground/RV park distribution.
-
-Dealer inputs:
-Dealership Name: ${payload.dealership_name}
-Address: ${payload.address}
-City: ${payload.city}
-State: ${payload.state}
-ZIP: ${payload.zip}
-Website: ${payload.website_url}
-Sales Radius: ${payload.sales_radius_miles} miles
-Service Radius: ${payload.service_radius_miles} miles
-Assumed Campaign Objectives (assume ALL of these): ${payload.primary_goal}
-Assumed Service Opportunities (assume ALL of these): ${payload.main_service_opportunity}
-Available Weather Triggers (assume the dealer wants ALL relevant triggers on the table): ${payload.weather_triggers.join(', ')}
-Campaign start assumption: Start next month, ${nextMonthName}.
-
-The dealer has NOT chosen a monthly package. YOU must recommend the best fit from these three levels based on market size and estimated opportunity: "$3,500/month Climate Safeguard Fund" (Starter), "$5,000/month Climate Safeguard Fund" (Growth), or "$7,500/month Climate Safeguard Fund" (Premium). Put your choice in recommended_package and explain it in recommended_package_reason.
-
-Return conservative-to-strong marketing ranges. Do not claim exact counts. Use ranges. Assume the dealer wants the full RV demand package covering all sales and all service goals; do not ask the dealer to narrow the campaign to only one sales or service objective.
-
-First, classify the dealer into ONE climate/market region based on state and ZIP, using this framework:
-- "Southern / Coastal Year-Round RV Market" (FL, AL, TX, LA, GA, NC, SC, MS): heat, rain, storms, hurricane prep, snowbirds, year-round sales.
-- "Northern / Seasonal RV Market" (OH, MI, IN, IL, PA, NY, WI, MN): spring opening, summer camping, fall service, winterization.
-- "Desert / Southwest RV Market" (AZ, NM, NV, west TX, southern CA): extreme heat, mild winter camping, dust/wind, monsoon storms.
-- "Mountain / Four-Season RV Market" (CO, UT, ID, MT, WY): spring thaw, summer camping, fall trips, snow/freeze prep.
-- "Pacific Northwest / Rain-Influenced RV Market" (WA, OR, northern CA): rain breaks, sunny weekends, roof/seal inspections, moisture protection.
-If the state does not clearly fit, choose the closest region and briefly explain why in the region reason.
-
-For recommended_channels, you MUST choose only from Smart 1 Marketing's actual media and targeting menu below. Return a tailored subset (in priority order) that fits this dealer's market:
-- "Connected TV (CTV)"
-- "Streaming Radio"
-- "Podcasts"
-- "Data-Driven Targeted Display"
-- "Geotargeting Campgrounds & State Parks"
-- "Location Look-Back Retargeting" (reach people whose devices were seen at local campgrounds/RV parks and then returned home)
-- "Digital Out-of-Home (DOOH)" at local bars, restaurants, gas stations, and shopping areas
-HARD RULE: Never recommend local newspapers, print, direct mail, terrestrial/broadcast radio, linear/broadcast TV, static billboards, or any channel not on the list above. Only the channels above are valid.
-
-For the month-by-month plan, label each month's "season" as exactly one of: "Peak", "Shoulder", or "Off-Season", based on the dealer's region and RV demand cycle. Peak = the dealer's strongest RV demand months; Shoulder = ramp-up/ramp-down months; Off-Season = the slowest demand months. Southern/coastal and desert markets are year-round, so they should have MORE Peak/Shoulder months and FEWER Off-Season months than northern markets. (The dollar budget for each month is calculated automatically from the recommended package and these season labels — spend is highest in Peak months and steps down in the Off-Season — so you only need to label the season correctly.)
-
-Then estimate:
-1. Approximate number of campgrounds/RV parks in the sales radius.
-2. Approximate total camping/RV sites in the sales radius.
-3. Approximate peak-season camper reach.
-4. Suggested seasonal campaign plan starting next month, with a season label on every month.
-5. Recommended Smart RV Demand package.
-6. Best weather triggers for this dealer, tuned to the region above.
-7. Recommended media channels, chosen ONLY from the Smart 1 menu above.
-8. A short sales summary written for the dealer.
-
-Use these assumptions unless local context strongly suggests otherwise:
-- Average campground/RV park site count: 75–125 sites.
-- Seasonal camper share: 35%–45%.
-- Transient/daily-weekly camper share: 55%–65%.
-- Average people per occupied campsite: 2.4.
-- Peak-season transient turnover: 8–12 stays per site.
-- Peak season generally runs spring through fall, adjusted by the dealer’s geography (year-round for southern/coastal and desert markets).
-- The estimate should be useful for marketing planning, not presented as an audited count.
-`;
+async function ghlGet(path) {
+  const resp = await fetch(`${GHL_BASE}${path}`, { headers: ghlHeaders() });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    const err = new Error(`GHL API ${resp.status}: ${body.slice(0, 300)}`);
+    err.status = resp.status;
+    throw err;
+  }
+  return resp.json();
 }
 
-const estimateSchema = {
-  name: 'smart_rv_demand_estimate',
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      estimate_disclaimer: { type: 'string' },
-      market_climate_region: { type: 'string' },
-      market_region_reason: { type: 'string' },
-      campground_count_low: { type: 'number' },
-      campground_count_high: { type: 'number' },
-      estimated_site_count_low: { type: 'number' },
-      estimated_site_count_high: { type: 'number' },
-      estimated_peak_season_reach_low: { type: 'number' },
-      estimated_peak_season_reach_high: { type: 'number' },
-      seasonal_share_assumption: { type: 'string' },
-      transient_share_assumption: { type: 'string' },
-      peak_season_assumption: { type: 'string' },
-      recommended_package: { type: 'string' },
-      recommended_package_reason: { type: 'string' },
-      recommended_channels: { type: 'array', items: { type: 'string' } },
-      best_weather_triggers: { type: 'array', items: { type: 'string' } },
-      dealer_summary: { type: 'string' },
-      month_by_month_plan: {
-        type: 'array',
-        minItems: 6,
-        maxItems: 12,
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            month: { type: 'string' },
-            season: { type: 'string', enum: ['Peak', 'Shoulder', 'Off-Season'] },
-            campaign_focus: { type: 'string' },
-            recommended_message: { type: 'string' },
-            weather_triggers: { type: 'array', items: { type: 'string' } }
-          },
-          required: ['month', 'season', 'campaign_focus', 'recommended_message', 'weather_triggers']
-        }
-      }
-    },
-    required: [
-      'estimate_disclaimer',
-      'market_climate_region',
-      'market_region_reason',
-      'campground_count_low',
-      'campground_count_high',
-      'estimated_site_count_low',
-      'estimated_site_count_high',
-      'estimated_peak_season_reach_low',
-      'estimated_peak_season_reach_high',
-      'seasonal_share_assumption',
-      'transient_share_assumption',
-      'peak_season_assumption',
-      'recommended_package',
-      'recommended_package_reason',
-      'recommended_channels',
-      'best_weather_triggers',
-      'dealer_summary',
-      'month_by_month_plan'
-    ]
-  },
-  strict: true
-};
+// Normalize a fieldKey like "opportunity.promo_name" -> "promo_name"
+function shortKey(fieldKey) {
+  if (!fieldKey) return "";
+  const parts = String(fieldKey).split(".");
+  return parts[parts.length - 1].toLowerCase();
+}
 
-// Smart 1 Marketing's actual media + targeting menu. recommended_channels is forced to this set.
-const APPROVED_CHANNELS = [
-  'Connected TV (CTV)',
-  'Streaming Radio',
-  'Podcasts',
-  'Data-Driven Targeted Display',
-  'Geotargeting Campgrounds & State Parks',
-  'Location Look-Back Retargeting',
-  'Digital Out-of-Home (DOOH)'
-];
+// Build (and cache) the map: short key -> custom field id
+async function resolveFieldIds() {
+  if (fieldIdByKey) return fieldIdByKey;
+  const data = await ghlGet(
+    `/locations/${encodeURIComponent(GHL_LOCATION_ID)}/customFields?model=opportunity`
+  );
+  const map = {};
+  for (const f of data.customFields || []) {
+    map[shortKey(f.fieldKey)] = f.id;
+  }
+  fieldIdByKey = map;
+  return map;
+}
 
-// Map whatever the model returns to the approved menu and drop anything off-menu
-// (e.g. local newspapers, print, broadcast). Falls back to the full menu if nothing maps.
-function normalizeChannels(list) {
-  const out = [];
-  const push = value => { if (!out.includes(value)) out.push(value); };
+// Read a custom field value off an opportunity by field id
+function valueById(opp, id) {
+  if (!id || !Array.isArray(opp.customFields)) return "";
+  const m = opp.customFields.find(
+    (f) => f.id === id || f.customFieldId === id
+  );
+  if (!m) return "";
+  const v =
+    m.fieldValue ??
+    m.value ??
+    m.field_value ??
+    m.fieldValueString ??
+    m.fieldValueArray ??
+    m.selectedOptions ??
+    "";
+  return Array.isArray(v) ? v.join(", ") : String(v ?? "");
+}
 
-  for (const raw of Array.isArray(list) ? list : []) {
-    const s = String(raw || '').toLowerCase();
-    if (s.includes('ctv') || s.includes('connected tv')) push('Connected TV (CTV)');
-    else if (s.includes('podcast')) push('Podcasts');
-    else if (s.includes('dooh') || s.includes('out-of-home') || s.includes('out of home') || s.includes('ooh')) push('Digital Out-of-Home (DOOH)');
-    else if (s.includes('look-back') || s.includes('lookback') || s.includes('look back') || s.includes('retarget') || s.includes('re-target')) push('Location Look-Back Retargeting');
-    else if (s.includes('geotarget') || s.includes('geo-target') || s.includes('geofenc') || s.includes('geo-fenc') || s.includes('campground') || s.includes('state park')) push('Geotargeting Campgrounds & State Parks');
-    else if (s.includes('display') || s.includes('programmatic') || s.includes('banner')) push('Data-Driven Targeted Display');
-    else if (s.includes('streaming radio') || s.includes('digital audio') || s.includes('streaming audio') || s.includes('audio') || s.includes('radio')) push('Streaming Radio');
-    // Anything else (newspaper, print, direct mail, broadcast, billboard, etc.) is intentionally dropped.
+// Make a date value readable. Leaves already-readable text (e.g. "August 1, 2026")
+// alone; converts epoch numbers and ISO dates to "Aug 1, 2026".
+function formatDateValue(v) {
+  if (!v) return "";
+  const s = String(v).trim();
+  let d = null;
+  if (/^\d{13}$/.test(s)) d = new Date(Number(s));           // ms epoch
+  else if (/^\d{10}$/.test(s)) d = new Date(Number(s) * 1000); // s epoch
+  else if (/^\d{4}-\d{2}-\d{2}/.test(s)) d = new Date(s);      // ISO date
+  if (d && !isNaN(d.getTime())) {
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  }
+  return s; // leave human-typed dates as-is
+}
+
+function toPromotion(opp, idMap) {
+  const out = { id: opp.id };
+  for (const [key, outName] of Object.entries(FIELD_MAP)) {
+    out[outName] = valueById(opp, idMap[key]);
+  }
+  // Promotion Name falls back to the opportunity's own title
+  if (!out.name) out.name = opp.name || "";
+
+  // Clean up dates
+  out.start = formatDateValue(out.start);
+  out.end = formatDateValue(out.end);
+
+  // Combine Description + Promo code / necessary item into one "details" line
+  if (out.promoCode) {
+    out.details = [out.details, "Promo Code / Item: " + out.promoCode]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
-  return out.length ? out : APPROVED_CHANNELS.slice();
+  // Contact from the linked contact record
+  const c = opp.contact || {};
+  out.contact =
+    c.email || c.name || [c.firstName, c.lastName].filter(Boolean).join(" ") || "";
+  return out;
 }
 
-// Parse the base monthly dollar amount from a recommended package string like
-// "$5,000/month Climate Safeguard Fund (Growth)". Defaults to 5000 if not parseable.
-function parseBudgetBase(recommendedPackage) {
-  const match = String(recommendedPackage || '').replace(/,/g, '').match(/\$?\s*(\d{3,6})/);
-  const value = match ? Number(match[1]) : 5000;
-  return Number.isFinite(value) && value > 0 ? value : 5000;
+let promoScope = null; // { pipelineId, stageId } resolved once
+
+async function getPipelines() {
+  const data = await ghlGet(
+    `/opportunities/pipelines?locationId=${encodeURIComponent(GHL_LOCATION_ID)}`
+  );
+  return data.pipelines || [];
 }
 
-function roundToNearest(value, step) {
-  return Math.round(value / step) * step;
-}
+// Resolve the pipeline + stage that hold promotions (explicit id wins, else by name).
+async function resolvePromoScope() {
+  if (promoScope) return promoScope;
+  const pipelines = await getPipelines();
 
-function formatUSD(value) {
-  return '$' + Number(value || 0).toLocaleString('en-US');
-}
-
-// Peak months run at the full package amount; spend steps down in the off season.
-const SEASON_BUDGET_MULTIPLIER = { 'Peak': 1, 'Shoulder': 0.7, 'Off-Season': 0.5 };
-
-// Compute a suggested monthly media budget per plan month (lower in the off season)
-// and attach totals to the estimate. Budget is derived from the recommended package,
-// so the dollar math is deterministic rather than model-generated.
-function applyBudgets(estimate) {
-  const base = parseBudgetBase(estimate.recommended_package);
-  const plan = Array.isArray(estimate.month_by_month_plan) ? estimate.month_by_month_plan : [];
-
-  let total = 0;
-  for (const row of plan) {
-    const multiplier = SEASON_BUDGET_MULTIPLIER[row.season] ?? 1;
-    // Round to the nearest $250, with a sensible off-season floor.
-    const budget = Math.max(roundToNearest(base * multiplier, 250), 1000);
-    row.suggested_budget = budget;
-    row.suggested_budget_text = formatUSD(budget);
-    total += budget;
+  let pipeline = null;
+  if (PROMO_PIPELINE_ID) {
+    pipeline = pipelines.find((p) => p.id === PROMO_PIPELINE_ID) || { id: PROMO_PIPELINE_ID, stages: [] };
+  } else {
+    const needle = PROMO_PIPELINE_NAME.toLowerCase();
+    pipeline = pipelines.find((p) => (p.name || "").toLowerCase().includes(needle)) || null;
   }
 
-  const monthsCount = plan.length || 1;
-  estimate.base_monthly_budget = base;
-  estimate.base_monthly_budget_text = formatUSD(base);
-  estimate.suggested_budget_total = total;
-  estimate.suggested_budget_total_text = formatUSD(total);
-  estimate.suggested_budget_months = plan.length;
-  estimate.average_monthly_budget = roundToNearest(total / monthsCount, 50);
-  estimate.average_monthly_budget_text = formatUSD(roundToNearest(total / monthsCount, 50));
-  estimate.budget_note =
-    `Suggested media budget starts at ${formatUSD(base)}/month during peak demand and steps down in the off season. ` +
-    `Across the ${plan.length}-month plan the suggested total is ${formatUSD(total)}. ` +
-    `Unused budget from slow-weather or off-season months rolls forward as Climate Safeguard Fund credit.`;
-  return estimate;
-}
-
-function buildProposalSummaryText(payload, estimate) {
-  const triggers = (estimate.best_weather_triggers || []).join(', ');
-  const channels = (estimate.recommended_channels || []).join(', ');
-  return [
-    `Smart RV Demand Package for ${payload.dealership_name}`,
-    `Location: ${payload.city}, ${payload.state} ${payload.zip}`,
-    `Market Type: ${estimate.market_climate_region}`,
-    `Sales Radius: ${payload.sales_radius_miles} miles | Service Radius: ${payload.service_radius_miles} miles`,
-    `Estimated Campgrounds/RV Parks: ${estimate.campground_count_low}–${estimate.campground_count_high}`,
-    `Estimated RV/Camping Sites: ${estimate.estimated_site_count_low}–${estimate.estimated_site_count_high}`,
-    `Estimated Peak-Season Camper Reach: ${estimate.estimated_peak_season_reach_low}–${estimate.estimated_peak_season_reach_high}`,
-    `Recommended Package: ${estimate.recommended_package}`,
-    `Suggested Budget: ${estimate.base_monthly_budget_text}/month at peak, stepping down in the off season (plan total ${estimate.suggested_budget_total_text})`,
-    `Recommended Channels: ${channels}`,
-    `Best Weather Triggers: ${triggers}`,
-    '',
-    estimate.dealer_summary,
-    '',
-    estimate.estimate_disclaimer
-  ].join('\n');
-}
-
-function buildMonthByMonthText(estimate) {
-  return (estimate.month_by_month_plan || [])
-    .map(row => `${row.month} (${row.season || 'Peak'} · ${row.suggested_budget_text || ''}): ${row.campaign_focus} — ${row.recommended_message} [Triggers: ${(row.weather_triggers || []).join(', ')}]`)
-    .join('\n');
-}
-
-async function createOpenAIEstimate(payload) {
-  const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: 'You are a marketing strategy estimator. Return only the requested JSON.' },
-      { role: 'user', content: buildPrompt(payload) }
-    ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: estimateSchema
+  let stageId = "";
+  if (pipeline) {
+    if (PROMO_STAGE_ID) {
+      stageId = PROMO_STAGE_ID;
+    } else if (PROMO_STAGE_NAME) {
+      const sNeedle = PROMO_STAGE_NAME.toLowerCase();
+      const stage = (pipeline.stages || []).find((s) =>
+        (s.name || "").toLowerCase().includes(sNeedle)
+      );
+      stageId = stage ? stage.id : "";
     }
-  });
-
-  const content = completion.choices?.[0]?.message?.content;
-  if (!content) throw new Error('OpenAI returned no content');
-  return JSON.parse(content);
-}
-
-async function sendToSmart1Suite(payload) {
-  const response = await fetch(process.env.SMART1_SUITE_WEBHOOK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  const text = await response.text();
-
-  if (!response.ok) {
-    throw new Error(`Smart 1 Suite webhook failed: ${response.status} ${text}`);
   }
 
-  return { status: response.status, body: text };
+  promoScope = { pipelineId: pipeline ? pipeline.id : "", stageId };
+  return promoScope;
 }
 
-app.get('/health', (req, res) => {
-  res.json({ ok: true, service: 'smart1rv', timestamp: new Date().toISOString() });
+async function fetchOpportunities(pipelineId) {
+  let path =
+    `/opportunities/search?location_id=${encodeURIComponent(GHL_LOCATION_ID)}&limit=100`;
+  if (pipelineId) path += `&pipeline_id=${encodeURIComponent(pipelineId)}`;
+  const data = await ghlGet(path);
+  return data.opportunities || [];
+}
+
+// Some search results omit customFields; fetch the full opportunity if needed.
+async function enrichIfNeeded(opp) {
+  if (Array.isArray(opp.customFields) && opp.customFields.length) return opp;
+  try {
+    const data = await ghlGet(`/opportunities/${encodeURIComponent(opp.id)}`);
+    const full = data.opportunity || data;
+    if (Array.isArray(full.customFields)) opp.customFields = full.customFields;
+  } catch {
+    /* leave as-is if the detail call fails */
+  }
+  return opp;
+}
+
+function isPromotion(opp, idMap, scope) {
+  if (scope.pipelineId) {
+    if (opp.pipelineId !== scope.pipelineId) return false;
+    if (scope.stageId && opp.pipelineStageId !== scope.stageId) return false;
+    return true;
+  }
+  // No promo pipeline found: fall back to "promo_name is filled"
+  return !!valueById(opp, idMap.promo_name);
+}
+
+async function buildPromotions() {
+  const idMap = await resolveFieldIds();
+  const scope = await resolvePromoScope();
+  const opps = await fetchOpportunities(scope.pipelineId);
+  const inScope = opps.filter((o) => isPromotion(o, idMap, scope));
+  const enriched = await Promise.all(inScope.map(enrichIfNeeded));
+  // Only real promotions: must have a Promo Name filled in.
+  // (Hides event bookings in the same stage that have no promo fields.)
+  return enriched
+    .filter((o) => valueById(o, idMap.promo_name))
+    .map((o) => toPromotion(o, idMap));
+}
+
+// ---- Routes ----
+function configOK(res) {
+  if (!GHL_PIT || !GHL_LOCATION_ID) {
+    res.status(500).json({ error: "Server not configured: set GHL_PIT and GHL_LOCATION_ID." });
+    return false;
+  }
+  return true;
+}
+
+app.get("/", (req, res) => {
+  res.json({ ok: true, service: "smart1-promos-proxy" });
 });
 
-app.post('/api/rv-demand/estimate-and-submit', async (req, res) => {
+app.get("/promotions", async (req, res) => {
+  if (!configOK(res)) return;
+  if (cache.data && Date.now() - cache.at < CACHE_MS) {
+    return res.json({ promotions: cache.data, cached: true });
+  }
   try {
-    const formData = normalizeFormPayload(req.body);
+    const promotions = await buildPromotions();
+    cache = { data: promotions, at: Date.now() };
+    res.json({ promotions, cached: false });
+  } catch (err) {
+    console.error(err);
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
 
-    if (!formData.email || !formData.dealership_name || !formData.zip) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Missing required fields: dealership_name, email, and zip are required.'
-      });
-    }
-
-    const estimate = await createOpenAIEstimate(formData);
-
-    // Enforce Smart 1's channel menu regardless of what the model returned (no newspapers/print/etc.).
-    estimate.recommended_channels = normalizeChannels(estimate.recommended_channels);
-
-    // Compute suggested monthly budgets (peak-season baseline, stepping down in the off season).
-    applyBudgets(estimate);
-
-    const suitePayload = {
-      source: 'Smart RV Demand Estimate Form',
-      lead_type: 'Smart RV Demand Package',
-      lead_status: 'New RV Demand Lead',
-      submitted_at: new Date().toISOString(),
-      ...formData,
-      selected_weather_triggers: formData.weather_triggers,
-      selected_weather_triggers_text: formData.weather_triggers.join(', '),
-      ...estimate,
-      // Text-friendly ranges for easy Smart 1 Suite document merge fields
-      campground_estimate_range: `${estimate.campground_count_low}–${estimate.campground_count_high} campgrounds and RV parks`,
-      estimated_site_range: `${estimate.estimated_site_count_low}–${estimate.estimated_site_count_high} estimated RV/camping sites`,
-      estimated_peak_season_reach_range: `${estimate.estimated_peak_season_reach_low}–${estimate.estimated_peak_season_reach_high} estimated peak-season camper reach`,
-      recommended_channels_text: (estimate.recommended_channels || []).join(', '),
-      best_weather_triggers_text: (estimate.best_weather_triggers || []).join(', '),
-      suggested_monthly_budget_text: `${estimate.base_monthly_budget_text}/month at peak`,
-      suggested_budget_total_text: estimate.suggested_budget_total_text,
-      average_monthly_budget_text: estimate.average_monthly_budget_text,
-      budget_note: estimate.budget_note,
-      month_by_month_plan_text: buildMonthByMonthText(estimate),
-      proposal_summary_text: buildProposalSummaryText(formData, estimate)
-    };
-
-    const suiteResult = await sendToSmart1Suite(suitePayload);
-
-    return res.json({
-      ok: true,
-      estimate,
-      suite_webhook_status: suiteResult.status
+// List pipelines + their stages (name + id) so we can confirm the promo scope.
+app.get("/pipelines", async (req, res) => {
+  if (!configOK(res)) return;
+  try {
+    const pipelines = await getPipelines();
+    res.json({
+      chosenScope: await resolvePromoScope(),
+      lookingFor: { pipelineName: PROMO_PIPELINE_NAME, stageName: PROMO_STAGE_NAME },
+      pipelines: pipelines.map((p) => ({
+        id: p.id,
+        name: p.name,
+        stages: (p.stages || []).map((s) => ({ id: s.id, name: s.name })),
+      })),
     });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      ok: false,
-      error: 'Estimate or webhook submission failed.',
-      detail: process.env.NODE_ENV === 'production' ? undefined : error.message
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Raw diagnostics: field-id resolution + what GHL returns for opportunities.
+app.get("/debug", async (req, res) => {
+  if (!configOK(res)) return;
+  try {
+    const idMap = await resolveFieldIds();
+    const scope = await resolvePromoScope();
+
+    // id -> field name, so we can label the raw values
+    const defs = await ghlGet(
+      `/locations/${encodeURIComponent(GHL_LOCATION_ID)}/customFields?model=opportunity`
+    );
+    const nameById = {};
+    for (const f of defs.customFields || []) nameById[f.id] = f.name;
+
+    const opps = await fetchOpportunities(scope.pipelineId);
+    const matched = opps.filter((o) => isPromotion(o, idMap, scope));
+    const enriched = await Promise.all(matched.slice(0, 3).map(enrichIfNeeded));
+
+    const rawValue = (f) =>
+      f.fieldValue ?? f.value ?? f.field_value ?? f.fieldValueString ??
+      f.fieldValueArray ?? f.selectedOptions ?? "";
+
+    res.json({
+      chosenScope: scope,
+      lookingFor: { pipelineName: PROMO_PIPELINE_NAME, stageName: PROMO_STAGE_NAME },
+      opportunitiesInPipeline: opps.length,
+      matchedAsPromotions: matched.length,
+      mappedSample: enriched.map((o) => toPromotion(o, idMap)),
+      // What each matched opportunity ACTUALLY has filled in:
+      matchedFieldsSample: enriched.map((o) => ({
+        id: o.id,
+        title: o.name,
+        customFieldsFilled: (o.customFields || []).map((f) => ({
+          field: nameById[f.id || f.customFieldId] || f.id,
+          value: rawValue(f),
+        })),
+      })),
     });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// List opportunity custom field definitions (ids + keys)
+app.get("/custom-fields", async (req, res) => {
+  if (!configOK(res)) return;
+  try {
+    const data = await ghlGet(
+      `/locations/${encodeURIComponent(GHL_LOCATION_ID)}/customFields?model=opportunity`
+    );
+    res.json({
+      customFields: (data.customFields || []).map((f) => ({
+        id: f.id, name: f.name, fieldKey: f.fieldKey, dataType: f.dataType,
+      })),
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`smart1rv running on port ${PORT}`);
+  console.log(`Smart 1 promos proxy listening on ${PORT}`);
 });
