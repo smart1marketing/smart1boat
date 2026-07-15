@@ -186,6 +186,20 @@ REPORT_SCHEMA = {
                 },
             },
             "audience_segments": {"type": "array", "items": {"type": "string"}},
+            "recommended_budget": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "monthly_budget_range": {"type": "string"},
+                    "recommended_starting_budget": {"type": "string"},
+                    "rationale": {"type": "string"},
+                },
+                "required": [
+                    "monthly_budget_range",
+                    "recommended_starting_budget",
+                    "rationale",
+                ],
+            },
             "weather_trigger_plan": {
                 "type": "object",
                 "additionalProperties": False,
@@ -251,6 +265,7 @@ REPORT_SCHEMA = {
             "geofence_locations",
             "zip_and_community_targets",
             "audience_segments",
+            "recommended_budget",
             "weather_trigger_plan",
             "campaign_plan",
             "sales_opportunities",
@@ -271,13 +286,6 @@ def clean_payload(data: dict) -> dict:
         "boat_types",
         "new_used",
         "campaign_objective",
-        "monthly_budget",
-        "seasonality",
-        "weather_trigger_targeting",
-        "weather_budget_mode",
-        "weather_trigger_lead_time",
-        "known_waterways",
-        "known_competitors",
         "contact_name",
         "contact_email",
         "contact_phone",
@@ -297,7 +305,22 @@ def generate_report(payload: dict) -> Any:
     user_prompt = (
         "\nBuild a Boat Dealer Market Intelligence & Geofencing Report from these inputs:\n"
         f"{json.dumps(payload, indent=2)}"
-        "\n\nReturn 18-30 geofence locations when the market size reasonably supports it. "
+        "\n\nThe dealer did NOT provide a boating season, a media budget, weather preferences, a "
+        "trigger lead time, or lists of local waterways and competitors. You must supply all of "
+        "these yourself:\n"
+        "- Assume the boating season and its length from the dealer's ZIP code and region. Do not ask.\n"
+        "- The dealer did not give a budget. In recommended_budget, suggest an appropriate monthly "
+        "media budget range and a specific recommended starting budget for this market, and explain "
+        "your reasoning based on market size, competition, season length, and the number of high-value "
+        "geofences.\n"
+        "- Always build a weather-triggered media strategy (weather-enhanced pacing that shifts more "
+        "budget into favorable boating weekends and pulls back during severe weather). Treat weather "
+        "triggers as enabled and populate weather_trigger_plan with real triggers.\n"
+        "- Assume the best trigger lead time for each tactic.\n"
+        "- Identify the local lakes, rivers, reservoirs, bays, public ramps, marinas, storage/service "
+        "facilities, marine retailers, boat shows, and competing boat dealers yourself from geographic "
+        "knowledge of the market, and include them in water_access_overview and geofence_locations.\n\n"
+        "Return 18-30 geofence locations when the market size reasonably supports it. "
         "Include a mix of boating access, marinas, storage/service, competitors, marine retail, "
         "and event venues. Prioritize locations inside the target radius and clearly lower "
         "confidence for uncertain locations.\n"
@@ -305,9 +328,6 @@ def generate_report(payload: dict) -> Any:
         "percent—not 0.075.\n"
         "Campaign budget percentages must total 100.\n"
         "Do not include social media or social advertising in the campaign plan or any recommendation.\n"
-        "Use the submitted weather-trigger preference and budget mode to create the "
-        "weather_trigger_plan. If weather triggers are declined, return a brief plan explaining "
-        "that no weather activation is recommended and provide an empty or minimal trigger list.\n"
     )
     response = client.responses.create(
         model=MODEL,
@@ -317,9 +337,15 @@ def generate_report(payload: dict) -> Any:
         ],
         text={"format": {"type": "json_schema", **REPORT_SCHEMA}},
         temperature=0.25,
-        max_output_tokens=9000,
+        max_output_tokens=16000,
     )
-    return json.loads(response.output_text)
+    text = (response.output_text or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    return json.loads(text)
 
 
 def send_webhook(payload: dict, report: Any, status: str) -> None:
@@ -360,7 +386,7 @@ def analyze():
         return jsonify({"ok": True, "report": report})
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    except Exception:
+    except Exception as exc:
         app.logger.exception("Analysis failed")
         try:
             send_webhook(clean_payload(request.get_json(silent=True) or {}), None, "failed")
@@ -371,6 +397,7 @@ def analyze():
                 {
                     "ok": False,
                     "error": "The report could not be generated. Check the server configuration and try again.",
+                    "detail": f"{type(exc).__name__}: {exc}",
                 }
             ),
             500,
