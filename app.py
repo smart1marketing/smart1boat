@@ -130,8 +130,9 @@ REPORT_SCHEMA = {
                         "focus": {"type": "string"},
                         "message": {"type": "string"},
                         "triggers": {"type": "array", "items": {"type": "string"}},
+                        "pacing": {"type": "string"},
                     },
-                    "required": ["month", "focus", "message", "triggers"],
+                    "required": ["month", "focus", "message", "triggers", "pacing"],
                 },
             },
             "geofence_locations": {
@@ -197,7 +198,6 @@ def clean_payload(data: dict) -> dict:
         "website",
         "dealer_zip",
         "target_radius",
-        "target_markets",
         "boat_types",
         "new_used",
         "campaign_objective",
@@ -233,22 +233,34 @@ def generate_report(payload: dict) -> Any:
         "or 'Coastal / Year-Round Saltwater Market'. market_type_description: one sentence on the seasonal pattern.\n"
         "- market_profile: low/base/high estimates for population, households, and likely boat-owner households, "
         "plus ownership rate (as a percentage decimal such as 7.5, not 0.075), confidence, and assumptions.\n"
-        "- market_opportunity: a short paragraph on the dealer's opportunity in this market.\n"
-        "- recommended_package: invent a professional, benefit-oriented package NAME (e.g. 'Climate Safeguard Fund', "
-        "'Season Surge Plan'), a monthly_investment string like '$5,000/month', and a description of what that level buys. "
-        "Base the amount on market size, competition, and season length.\n"
-        "- media_channels: 3-6 ALLOWED channels only (geofencing campgrounds/marinas & state parks, location look-back "
-        "retargeting, data-driven / programmatic targeted display, connected TV (CTV/OTT), streaming audio, YouTube/online "
-        "video, website retargeting). NEVER include paid search, email, SMS, or any social channel.\n"
+        "- market_opportunity: keep this SIMPLE — one short, plain sentence on the dealer's opportunity in this market.\n"
+        "- recommended_package: choose the best-fit package for this market from the Smart 1 package menu below. "
+        "Use its exact NAME and monthly price as monthly_investment (e.g. '$5,000/month'), and write a short description of what that level buys. "
+        "Pick the tier based on market size, competition, and season length.\n"
+        "  SMART 1 PACKAGE MENU (use these, do not invent prices):\n"
+        "    * $2,500/month — Harbor Starter\n"
+        "    * $5,000/month — Climate Safeguard Fund\n"
+        "    * $7,500/month — Season Surge Plan\n"
+        "    * $10,000/month — Full Fleet Dominance\n"
+        "- media_channels: ALLOWED channels/data only. ALWAYS include 'In-Market Boat Buyer Audience Data' as one of the "
+        "chips (we layer third-party in-market boat-shopper data across the plan). Then choose from: geofencing "
+        "marinas/ramps & state parks, location look-back retargeting, data-driven / programmatic targeted display, connected "
+        "TV (CTV/OTT), streaming audio, YouTube/online video, website retargeting. Return 4-7 chips total. NEVER include paid "
+        "search, email, SMS, or any social channel.\n"
         "- streaming_audio_note: a short recommendation to geotarget streaming audio (streaming radio) around "
         "water-access areas (marinas, boat ramps, lakes, launch points) because boaters stream audio on the water. "
         "Specify a sunrise-to-sunset daypart running on boating-favorable days/weekends.\n"
         "- weather_triggers: 5-8 short trigger labels for this market (e.g. '70°+ weekend', 'Sunny weekend', "
         "'First frost', 'Freeze warning', 'Holiday weekend forecast').\n"
         "- monthly_plan: all 12 months (January through December). Each month has a focus title, a short customer-facing "
-        "message, and 1-2 relevant weather trigger labels drawn from weather_triggers. Match focus to the season "
-        "(spring/summer = sales & camping/boating demand, fall = end-of-season & winterization, winter = storage/service "
-        "& early-order/boat-show).\n"
+        "message, 1-2 relevant weather trigger labels drawn from weather_triggers, and a 'pacing' string. Match focus to the "
+        "season (spring/summer = sales & boating demand, fall = end-of-season & winterization, winter = storage/service & "
+        "early-order/boat-show).\n"
+        "  BUDGET PACING RULE for the 'pacing' field: the recommended_package monthly_investment is the PEAK / in-season "
+        "monthly budget (100%). In shoulder-season months spend 35% of the package; in off-season months spend 20% of the "
+        "package. Classify each month as Peak, Shoulder, or Off-season based on this market's boating season, and set pacing "
+        "to a short string with the tier, percent, and computed dollar amount — e.g. 'Peak — 100% ($5,000)', "
+        "'Shoulder — 35% ($1,750)', 'Off-season — 20% ($1,000)'. Compute the dollars from the chosen package price.\n"
         "- geofence_locations: 12-18 locations (boating access, marinas, storage/service, competitors, marine retail, "
         "event venues). Prioritize locations inside the target radius; lower confidence for uncertain ones. Keep text concise.\n"
         "- disclaimer: a short note that figures are AI planning estimates for the market, not exact counts.\n"
