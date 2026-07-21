@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import tempfile
+import uuid
 from typing import Any
 
 import requests
@@ -14,6 +16,26 @@ app = Flask(__name__)
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 WEBHOOK_URL = os.getenv("SMART1_WEBHOOK_URL", "").strip()
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+
+REPORTS_DIR = os.path.join(tempfile.gettempdir(), "smart1boat_reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+
+def save_report(report: Any, dealer_name: str) -> str:
+    rid = uuid.uuid4().hex[:12]
+    with open(os.path.join(REPORTS_DIR, f"{rid}.json"), "w") as f:
+        json.dump({"report": report, "dealer_name": dealer_name}, f)
+    return rid
+
+
+def base_url() -> str:
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL
+    base = request.url_root.rstrip("/")
+    if base.startswith("http://"):
+        base = "https://" + base[len("http://"):]
+    return base
 
 SYSTEM_PROMPT = """
 You are the Smart 1 Marketing Boat Dealer Market Intelligence Architect.
@@ -239,7 +261,7 @@ def generate_report(payload: dict) -> Any:
         "Pick the tier based on market size, competition, and season length.\n"
         "  SMART 1 PACKAGE MENU (use these, do not invent prices):\n"
         "    * $2,500/month — Harbor Starter\n"
-        "    * $5,000/month — Climate Safeguard Fund\n"
+        "    * $5,000/month — SmartForecast Ads\n"
         "    * $7,500/month — Season Surge Plan\n"
         "    * $10,000/month — Full Fleet Dominance\n"
         "- media_channels: ALLOWED channels/data only. ALWAYS include 'In-Market Boat Buyer Audience Data' as one of the "
@@ -284,18 +306,29 @@ def generate_report(payload: dict) -> Any:
     return json.loads(text)
 
 
-def send_webhook(payload: dict, report: Any, status: str) -> None:
+def send_webhook(payload: dict, report: Any, status: str, report_url: str = "") -> None:
     if not WEBHOOK_URL:
         return
+    rep = report or {}
+    pkg = rep.get("recommended_package", {}) or {}
+    full_name = (payload.get("contact_name") or "").strip()
+    first_name, _, last_name = full_name.partition(" ")
     body = {
         **payload,
+        "contact_first_name": first_name,
+        "contact_last_name": last_name,
         "source": "Smart 1 Boat Dealer Market Intelligence",
         "report_status": status,
-        "estimated_boat_owner_households_base": (report or {})
-        .get("market_profile", {})
-        .get("estimated_boat_owner_households_base"),
-        "market_summary": (report or {}).get("market_summary", ""),
-        "report_json": json.dumps(report or {}, separators=(",", ":"))[:60000],
+        "opportunity_name": f"{payload.get('dealer_name', '').strip()} — Weather Marketing Proposal".strip(" —"),
+        "market_type": rep.get("market_type", ""),
+        "estimated_boat_owner_households_base": rep.get("market_profile", {}).get(
+            "estimated_boat_owner_households_base"
+        ),
+        "recommended_package": pkg.get("package_name", ""),
+        "recommended_monthly_investment": pkg.get("monthly_investment", ""),
+        "market_summary": rep.get("market_summary", ""),
+        "report_url": report_url or "",
+        "report_json": json.dumps(rep, separators=(",", ":"))[:60000],
     }
     try:
         requests.post(WEBHOOK_URL, json=body, timeout=12)
@@ -313,13 +346,27 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.get("/api/report/<rid>")
+def get_report(rid: str):
+    if not re.fullmatch(r"[a-f0-9]{12}", rid or ""):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    path = os.path.join(REPORTS_DIR, f"{rid}.json")
+    if not os.path.exists(path):
+        return jsonify({"ok": False, "error": "This report link is no longer available."}), 404
+    with open(path) as f:
+        data = json.load(f)
+    return jsonify({"ok": True, "report": data["report"], "dealer_name": data.get("dealer_name", "")})
+
+
 @app.post("/api/analyze")
 def analyze():
     try:
         payload = clean_payload(request.get_json(silent=True) or {})
         report = generate_report(payload)
-        send_webhook(payload, report, "completed")
-        return jsonify({"ok": True, "report": report})
+        rid = save_report(report, payload.get("dealer_name", ""))
+        report_url = f"{base_url()}/?r={rid}"
+        send_webhook(payload, report, "completed", report_url)
+        return jsonify({"ok": True, "report": report, "report_url": report_url})
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
