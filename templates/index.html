@@ -317,6 +317,9 @@ showStep();
   const post=()=>{try{parent.postMessage({smart1boatHeight:document.body.scrollHeight},'*');}catch(e){}};
   try{new ResizeObserver(post).observe(document.body);}catch(e){}
   window.addEventListener('load',post);setTimeout(post,300);post();
+  // Tell the parent landing page the form is on screen, so its branded loader reveals instantly.
+  const ready=()=>{try{parent.postMessage('app-ready','*');}catch(e){}};
+  window.addEventListener('load',ready);setTimeout(ready,500);ready();
 })();
 
 // Shared-report mode: /?r=<id> renders a saved report (used by the emailed proposal link)

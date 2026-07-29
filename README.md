@@ -51,9 +51,26 @@ files to keep in sync. This keeps the form reliable when embedded in Smart 1 Sui
 2. Connect the `smart1boat` GitHub repository.
 3. Render will read `render.yaml`.
 4. Add the secret environment variable `OPENAI_API_KEY`.
-5. Add `SMART1_WEBHOOK_URL` for the Smart 1 Suite inbound webhook.
-6. Keep `OPENAI_MODEL` at the default or change it to a model available in your OpenAI account.
-7. Deploy and test `/health`, then test the full form.
+5. Add `GHL_WEBHOOK_URL` for the Go High Level (Smart1Suite) inbound webhook.
+6. Add `CLOUDINARY_URL` (from your Cloudinary dashboard) so generated PDF reports are stored there.
+7. Add `PUBLIC_BASE_URL` = your public app URL (e.g. `https://smart1boat.onrender.com`) so report links are absolute.
+8. Keep `OPENAI_MODEL` at the default or change it to a model available in your OpenAI account.
+9. Confirm the Start Command includes `--timeout 300` (report generation runs long).
+10. Deploy and test `/health`, then test the full form.
+
+### Environment variables (Render)
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | yes | OpenAI key that generates the report |
+| `OPENAI_MODEL` | no (default `gpt-4.1-mini`) | model used |
+| `GHL_WEBHOOK_URL` | yes | Go High Level inbound webhook the lead + report is posted to |
+| `CLOUDINARY_URL` | yes (for PDF storage) | Cloudinary credentials; generated PDFs are uploaded here |
+| `PUBLIC_BASE_URL` | recommended | public app URL used to build report links |
+
+On each submission the app generates a branded **PDF** of the report, uploads it to Cloudinary
+under `boat-reports/<dealer-slug>-boat-report-<id>.pdf`, and includes both `report_url`
+(interactive) and `report_pdf_url` (the Cloudinary PDF) in the webhook payload.
 
 ## Smart 1 Suite fields
 
