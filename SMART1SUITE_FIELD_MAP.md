@@ -38,9 +38,20 @@ Below is every field it sends, and how to map it in Smart1Suite to create a Cont
 | `recommended_monthly_investment` | Recommended Monthly Investment | Single line / Monetary |
 | `market_summary` | Boat Market Summary | Multi line |
 | `report_url` | **Proposal Report Link** | Single line / URL |
+| `report_pdf_url` | **Proposal PDF (Cloudinary)** | Single line / URL — the downloadable branded PDF |
 | `report_json` | Boat Report JSON (optional) | Large text — full report data, backup |
 | `report_status` | Boat Report Status | Single line (`completed` / `failed`) |
 | `source` | Lead Source | Single line (`Smart 1 Boat Dealer Market Intelligence`) |
+
+## 2b. Auto-tagging (segmentation)
+
+The webhook sends two ready-made tag values. Add an **"Add Tag"** action in the workflow and use
+the merge field as the tag name (GHL creates the tag if it doesn't exist):
+
+| Webhook field | Example value | Use |
+|---|---|---|
+| `market_tag` | `Boat - Northern / Seasonal Inland Lake Market` | Segment nurture by climate/market |
+| `package_tag` | `Boat - SmartForecast Ads` | Segment by recommended package tier |
 
 ## 3. Opportunity fields
 
@@ -100,7 +111,8 @@ Package: {{inboundWebhookRequest.recommended_package}} — {{inboundWebhookReque
 Summary: {{inboundWebhookRequest.market_summary}}
 
 LINKS
-Proposal report: {{inboundWebhookRequest.report_url}}
+Interactive report: {{inboundWebhookRequest.report_url}}
+Download PDF: {{inboundWebhookRequest.report_pdf_url}}
 Report status: {{inboundWebhookRequest.report_status}}
 
 Dealer notes: {{inboundWebhookRequest.notes}}
@@ -111,9 +123,10 @@ Source: {{inboundWebhookRequest.source}}
 1. Automation → Workflows → **Create Workflow** → Trigger: **Inbound Webhook**.
 2. Submit the boat form once so Smart1Suite captures a sample payload (auto-maps the fields above).
 3. Action **Create/Update Contact** → map fields from sections 1–2.
-4. Action **Create/Update Opportunity** → map fields from section 3.
-5. Action **Add Note** → paste the summary note from section 5.
-6. Action **Send Email** → include the `report_url` button from section 4.
+4. Action **Add Tag** → `{{inboundWebhookRequest.market_tag}}` (and a 2nd for `package_tag`).
+5. Action **Create/Update Opportunity** → map fields from section 3.
+6. Action **Add Note** → paste the summary note from section 5.
+7. Action **Send Email** → include the `report_pdf_url` (PDF) or `report_url` button from section 4.
 7. (Optional) Add an internal notification to the assigned rep.
 
 ## Full list of webhook field keys (for reference)

@@ -524,6 +524,8 @@ def send_webhook(payload: dict, report: Any, status: str, report_url: str = "", 
     pkg = rep.get("recommended_package", {}) or {}
     full_name = (payload.get("contact_name") or "").strip()
     first_name, _, last_name = full_name.partition(" ")
+    market_type = (rep.get("market_type") or "").strip()
+    package_name = (pkg.get("package_name") or "").strip()
     body = {
         **payload,
         "contact_first_name": first_name,
@@ -531,11 +533,14 @@ def send_webhook(payload: dict, report: Any, status: str, report_url: str = "", 
         "source": "Smart 1 Boat Dealer Market Intelligence",
         "report_status": status,
         "opportunity_name": f"{payload.get('dealer_name', '').strip()} — Weather Marketing Proposal".strip(" —"),
-        "market_type": rep.get("market_type", ""),
+        "market_type": market_type,
+        # Ready-to-use CRM tags for auto-segmentation (map these to GHL "Add Tag" actions):
+        "market_tag": (f"Boat - {market_type}" if market_type else "Boat - Lead"),
+        "package_tag": (f"Boat - {package_name}" if package_name else ""),
         "estimated_boat_owner_households_base": rep.get("market_profile", {}).get(
             "estimated_boat_owner_households_base"
         ),
-        "recommended_package": pkg.get("package_name", ""),
+        "recommended_package": package_name,
         "recommended_monthly_investment": pkg.get("monthly_investment", ""),
         "market_summary": rep.get("market_summary", ""),
         "report_url": report_url or "",
@@ -573,7 +578,11 @@ def get_report(rid: str):
 @app.post("/api/analyze")
 def analyze():
     try:
-        payload = clean_payload(request.get_json(silent=True) or {})
+        data = request.get_json(silent=True) or {}
+        # Honeypot: real users never fill this hidden field; bots do. Block silently.
+        if (data.get("company_website") or "").strip():
+            return jsonify({"ok": False, "error": "Submission could not be processed."}), 400
+        payload = clean_payload(data)
         report = generate_report(payload)
         rid = save_report(report, payload.get("dealer_name", ""))
         report_url = f"{base_url()}/?r={rid}"
@@ -602,8 +611,7 @@ def analyze():
             jsonify(
                 {
                     "ok": False,
-                    "error": "The report could not be generated. Check the server configuration and try again.",
-                    "detail": f"{type(exc).__name__}: {exc}",
+                    "error": "Sorry — we couldn't generate your report just now. Please try again in a moment.",
                 }
             ),
             500,
