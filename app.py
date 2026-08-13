@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 from openai import OpenAI
 
 try:
@@ -72,16 +72,15 @@ def base_url() -> str:
     return base
 
 
-NAVY = (12, 32, 60)
-BLUE = (0, 158, 210)
+NAVY = (10, 34, 64)   # brand navy #0A2240
+BLUE = (0, 158, 210)  # brand blue #009ED2
 TEAL = (23, 201, 176)
-GOLD = (244, 184, 60)
-RED = (214, 69, 80)
 GREY = (108, 122, 140)
 INK = (37, 54, 75)
 LINE = (214, 226, 236)
 CARD = (247, 250, 252)
 CONSULT_URL = "https://smart1marketing.com/boatmarketingconsult"
+SOURCE_NAME = "Smart 1 Boat Dealer Market Intelligence"
 
 
 class ReportPDF(FPDF):
@@ -143,7 +142,7 @@ class ReportPDF(FPDF):
         self.set_font("Helvetica", "", 7)
         self.set_text_color(*GREY)
         self.cell(self.w - 2 * self.l_margin - 20, 4,
-                  _pdf_text("Smart 1 Marketing  -  Weather-triggered plan based on AI market estimates. Verify locations and figures before activation."),
+                  _pdf_text("Smart 1 Marketing · (614) 536-0768 · smart1marketing.com  -  AI market estimates; verify locations and figures before activation."),
                   new_x=XPos.RIGHT, new_y=YPos.TOP)
         self.set_font("Helvetica", "B", 7)
         self.cell(20, 4, f"{self.page_no()} / {{nb}}", align="R", new_x=XPos.LMARGIN, new_y=YPos.TOP)
@@ -788,25 +787,44 @@ REPORT_SCHEMA = {
 }
 
 
+EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
+
+LEAD_FIELDS = [
+    "dealer_name",
+    "website",
+    "dealer_zip",
+    "target_radius",
+    "boat_types",
+    "new_used",
+    "campaign_objective",
+    "contact_name",
+    "contact_email",
+    "contact_phone",
+    "notes",
+    "lead_id",  # optional client-generated id so GHL can merge partial + final records
+]
+
+
+def split_name(full_name: str) -> tuple:
+    """Simple convention: first token = first name, everything after = last name.
+    ("Mary Jo Van Dyke" -> first "Mary", last "Jo Van Dyke"). Imperfect for
+    multi-word first names, but predictable for CRM mapping."""
+    parts = (full_name or "").strip().split()
+    if not parts:
+        return "", ""
+    return parts[0], " ".join(parts[1:])
+
+
 def clean_payload(data: dict) -> dict:
-    fields = [
-        "dealer_name",
-        "website",
-        "dealer_zip",
-        "target_radius",
-        "boat_types",
-        "new_used",
-        "campaign_objective",
-        "contact_name",
-        "contact_email",
-        "contact_phone",
-        "notes",
-    ]
-    cleaned = {k: str(data.get(k, "")).strip()[:1500] for k in fields}
+    cleaned = {k: str(data.get(k, "")).strip()[:1500] for k in LEAD_FIELDS}
     if not re.fullmatch(r"\d{5}(-\d{4})?", cleaned["dealer_zip"]):
         raise ValueError("A valid U.S. ZIP code is required.")
     if not cleaned["website"] or "." not in cleaned["website"]:
         raise ValueError("A dealership website is required.")
+    if not cleaned["contact_name"]:
+        raise ValueError("Your name is required.")
+    if not EMAIL_RE.fullmatch(cleaned["contact_email"]):
+        raise ValueError("A valid email address is required.")
     return cleaned
 
 
@@ -907,15 +925,14 @@ def send_webhook(payload: dict, report: Any, status: str, report_url: str = "", 
         return
     rep = report or {}
     pkg = rep.get("recommended_package", {}) or {}
-    full_name = (payload.get("contact_name") or "").strip()
-    first_name, _, last_name = full_name.partition(" ")
+    first_name, last_name = split_name(payload.get("contact_name") or "")
     market_type = (rep.get("market_type") or "").strip()
     package_name = (pkg.get("package_name") or "").strip()
     body = {
         **payload,
         "contact_first_name": first_name,
         "contact_last_name": last_name,
-        "source": "Smart 1 Boat Dealer Market Intelligence",
+        "source": SOURCE_NAME,
         "report_status": status,
         "opportunity_name": f"{payload.get('dealer_name', '').strip()} — Weather Marketing Proposal".strip(" —"),
         "market_type": market_type,
@@ -960,6 +977,56 @@ def get_report(rid: str):
     return jsonify({"ok": True, "report": data["report"], "dealer_name": data.get("dealer_name", "")})
 
 
+@app.get("/pdf/<rid>")
+def get_report_pdf(rid: str):
+    """Local PDF fallback used when Cloudinary is not configured (ephemeral storage)."""
+    if not re.fullmatch(r"[a-f0-9]{12}", rid or ""):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    path = os.path.join(REPORTS_DIR, f"{rid}.pdf")
+    if not os.path.exists(path):
+        return jsonify({"ok": False, "error": "This PDF is no longer available."}), 404
+    return send_file(path, mimetype="application/pdf", as_attachment=False,
+                     download_name="smart1-boat-report.pdf")
+
+
+# Fields we salvage from a partial (abandoned) form, plus click-attribution keys.
+PARTIAL_FIELDS = [
+    "dealer_name", "website", "dealer_zip", "target_radius", "boat_types",
+    "new_used", "campaign_objective",
+    "contact_name", "contact_email", "contact_phone",
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "gclid", "fbclid", "referrer_url", "landing_page_url",
+]
+
+
+@app.post("/api/partial-lead")
+def partial_lead():
+    """Best-effort capture of partially completed forms (sent via beacon on page exit).
+
+    Relaxed on purpose: no email requirement, no ZIP validation — salvage whatever
+    arrived and forward it to the webhook with report_status "partial". Always
+    responds {ok:true}; this endpoint must never surface errors to the page.
+    """
+    try:
+        data = request.get_json(silent=True, force=True) or {}
+        # Honeypot: bots fill this hidden field. Pretend success, send nothing.
+        if (data.get("company_website") or "").strip():
+            return jsonify({"ok": True})
+        body = {"source": SOURCE_NAME, "report_status": "partial"}
+        lead_id = str(data.get("lead_id") or "").strip()[:100]
+        if lead_id:
+            body["lead_id"] = lead_id
+        for k in PARTIAL_FIELDS:
+            v = str(data.get(k) or "").strip()[:1500]
+            if v:
+                body[k] = v
+        if WEBHOOK_URL and len(body) > 2:  # only forward if something beyond source/status arrived
+            requests.post(WEBHOOK_URL, json=body, timeout=8)
+    except Exception:
+        app.logger.exception("Partial lead forward failed")
+    return jsonify({"ok": True})
+
+
 @app.post("/api/analyze")
 def analyze():
     try:
@@ -976,10 +1043,17 @@ def analyze():
             try:
                 pdf_path = build_pdf(report, payload.get("dealer_name", ""), payload)
                 report_pdf_url = upload_report_pdf(pdf_path, payload.get("dealer_name", ""), rid)
-                try:
-                    os.remove(pdf_path)
-                except OSError:
-                    pass
+                if report_pdf_url:
+                    # Uploaded to Cloudinary — the temp file is no longer needed.
+                    try:
+                        os.remove(pdf_path)
+                    except OSError:
+                        pass
+                else:
+                    # Cloudinary unconfigured/failed: keep the PDF locally and serve it
+                    # from this app (ephemeral storage — cleared on redeploy).
+                    os.replace(pdf_path, os.path.join(REPORTS_DIR, f"{rid}.pdf"))
+                    report_pdf_url = f"{base_url()}/pdf/{rid}"
             except Exception:
                 app.logger.exception("PDF generation/upload failed")
         send_webhook(payload, report, "completed", report_url, report_pdf_url)
@@ -989,7 +1063,11 @@ def analyze():
     except Exception as exc:
         app.logger.exception("Analysis failed")
         try:
-            send_webhook(clean_payload(request.get_json(silent=True) or {}), None, "failed")
+            # Salvage whatever raw fields arrived, WITHOUT re-validating: clean_payload
+            # would re-raise on the same bad input and the failure webhook would never send.
+            raw = request.get_json(silent=True) or {}
+            salvaged = {k: str(raw.get(k, "")).strip()[:1500] for k in LEAD_FIELDS}
+            send_webhook(salvaged, None, "failed")
         except Exception:
             pass
         return (

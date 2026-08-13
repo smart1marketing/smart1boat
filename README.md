@@ -65,8 +65,9 @@ files to keep in sync. This keeps the form reliable when embedded in Smart 1 Sui
 | `OPENAI_API_KEY` | yes | OpenAI key that generates the report |
 | `OPENAI_MODEL` | no (default `gpt-4.1-mini`) | model used |
 | `GHL_WEBHOOK_URL` | yes | Go High Level inbound webhook the lead + report is posted to |
-| `CLOUDINARY_URL` | yes (for PDF storage) | Cloudinary credentials; generated PDFs are uploaded here |
-| `PUBLIC_BASE_URL` | recommended | public app URL used to build report links |
+| `SMART1_WEBHOOK_URL` | no | legacy fallback; only read if `GHL_WEBHOOK_URL` is unset |
+| `CLOUDINARY_URL` | recommended | Cloudinary credentials; generated PDFs are uploaded here. If unset, PDFs are served by the app at `/pdf/<id>` — this storage is ephemeral and cleared on redeploy |
+| `PUBLIC_BASE_URL` | recommended | public app URL used to build report and PDF links |
 
 On each submission the app generates a branded **PDF** of the report, uploads it to Cloudinary
 under `boat-reports/<dealer-slug>-boat-report-<id>.pdf`, and includes both `report_url`

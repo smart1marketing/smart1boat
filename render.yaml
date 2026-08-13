@@ -15,6 +15,9 @@ services:
         value: gpt-4.1-mini
       - key: GHL_WEBHOOK_URL
         sync: false
+      # Legacy fallback webhook var; only read if GHL_WEBHOOK_URL is unset.
+      - key: SMART1_WEBHOOK_URL
+        sync: false
       - key: CLOUDINARY_URL
         sync: false
       - key: PUBLIC_BASE_URL

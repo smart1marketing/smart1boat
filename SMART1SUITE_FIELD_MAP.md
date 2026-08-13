@@ -1,6 +1,7 @@
 # Smart1Suite (Go High Level) — Field Map to Create an Opportunity
 
-When a dealer submits the boat form, the app posts a JSON webhook to your `SMART1_WEBHOOK_URL`.
+When a dealer submits the boat form, the app posts a JSON webhook to your `GHL_WEBHOOK_URL`
+(the legacy `SMART1_WEBHOOK_URL` variable still works as a fallback if `GHL_WEBHOOK_URL` is unset).
 Below is every field it sends, and how to map it in Smart1Suite to create a Contact + Opportunity and send the proposal.
 
 ## How it flows
@@ -40,7 +41,8 @@ Below is every field it sends, and how to map it in Smart1Suite to create a Cont
 | `report_url` | **Proposal Report Link** | Single line / URL |
 | `report_pdf_url` | **Proposal PDF (Cloudinary)** | Single line / URL — the downloadable branded PDF |
 | `report_json` | Boat Report JSON (optional) | Large text — full report data, backup |
-| `report_status` | Boat Report Status | Single line (`completed` / `failed`) |
+| `report_status` | Boat Report Status | Single line (`completed` / `failed` / `partial` for abandoned-form leads) |
+| `lead_id` | Lead ID | Single line — client-generated id; lets you merge a `partial` lead with the final submit |
 | `source` | Lead Source | Single line (`Smart 1 Boat Dealer Market Intelligence`) |
 
 ## 2b. Auto-tagging (segmentation)
@@ -127,10 +129,14 @@ Source: {{inboundWebhookRequest.source}}
 5. Action **Create/Update Opportunity** → map fields from section 3.
 6. Action **Add Note** → paste the summary note from section 5.
 7. Action **Send Email** → include the `report_pdf_url` (PDF) or `report_url` button from section 4.
-7. (Optional) Add an internal notification to the assigned rep.
+8. (Optional) Add an internal notification to the assigned rep.
 
 ## Full list of webhook field keys (for reference)
 `dealer_name, website, dealer_zip, target_radius, boat_types, new_used, campaign_objective, notes,
-contact_name, contact_first_name, contact_last_name, contact_email, contact_phone,
+contact_name, contact_first_name, contact_last_name, contact_email, contact_phone, lead_id,
 source, report_status, opportunity_name, market_type, estimated_boat_owner_households_base,
 recommended_package, recommended_monthly_investment, market_summary, report_url, report_pdf_url, report_json`
+
+Partial (abandoned-form) webhooks sent to the same URL contain `source`, `report_status: "partial"`,
+`lead_id`, whichever form fields were filled, and any of
+`utm_source, utm_medium, utm_campaign, utm_term, utm_content, gclid, fbclid, referrer_url, landing_page_url`.
